@@ -196,7 +196,7 @@ The end‑to‑end workflow for the Dynamic Parking Pricing system consists of t
 
 ### Workflow Diagram
 
-text
+```text
 ┌─────────────────┐
 │ Data Ingestion  │<─── CSV or Streaming ───┐
 │  (Pathway)      │                          │
