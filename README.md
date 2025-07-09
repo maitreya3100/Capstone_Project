@@ -46,118 +46,184 @@ Urban parking spaces are a limited resource. Fixed pricing does not respond to f
 
 ---
 
-## Architecture
 
-[ Data Generation (Pathway or CSV) ]
-│
-▼
-[ Feature Engineering (occupancy_rate, queue_length, traffic_score, etc.) ]
-│
-▼
-[ Pricing Models ]
-├─ Model 1: Linear price update by occupancy rate
-└─ Model 2: Demand function with multiple features
-│
-▼
-[ Visualization ]
-├─ Occupancy distribution histogram
-├─ Price evolution line chart
-└─ Bar charts for system-level metrics
+# Architecture Overview
 
-yaml
-Copy
-Edit
+This document describes the high‑level architecture of the Dynamic Pricing for Urban Parking Lots system. It covers the main components, data flow, and interactions between modules.
 
 ---
 
-## Model Descriptions
+## 1. System Components
 
-### Model 1: Baseline Linear Pricing
+1. **Data Ingestion Layer**  
+   - **Pathway CSV Reader** (batch) or **Pathway Streaming Source** (real‑time)  
+   - Validates incoming records against a predefined schema (`TrafficSchema`)  
+   - Ensures timestamp ordering and fault tolerance  
 
-- **Logic**: Price at time t+1 = Price t + α × (Occupancy / Capacity)  
-- **Characteristics**:  
-  - Simple, smooth, interpretable  
-  - Acts as a reference baseline  
+2. **Feature Engineering & Processing**  
+   - Calculates derived features such as:  
+     - **occupancy_rate** = Occupancy / Capacity  
+     - **traffic_score**: numeric encoding of traffic level  
+     - **queue_length**, **is_special_day**, **vehicle_type_weight**  
+   - Implements smoothing logic for stability  
 
-**Notebook**: `model_1_colab.ipynb`  
+3. **Pricing Engine**  
+   - **Model 1 (Baseline Linear)**  
+     - Simple update:  
+       ```
+       price[t+1] = price[t] + α × occupancy_rate
+       ```  
+   - **Model 2 (Demand‑Based)**  
+     - Computes a composite demand score:  
+       ```
+       Demand = α·occupancy_rate
+              + β·queue_length
+              − γ·traffic_score
+              + δ·is_special_day
+              + ε·vehicle_type_weight
+       ```  
+     - Normalizes demand to [–1, +1] or [0, 1]  
+     - Updates price:  
+       ```
+       price = BasePrice × (1 + λ × normalized_demand)
+       ```  
+   - Ensures price bounds (e.g., [0.5×, 2×] of base price)  
+
+4. **Visualization & Dashboard**  
+   - **Bokeh** for interactive plots (histograms, line charts, bar charts)  
+   - **Panel** for layout, widgets (sliders, buttons), and data tables  
+   - Supports inline rendering in Jupyter/Colab and as a standalone web app via `panel serve`  
+
+5. **Deployment & Serving**  
+   - **Local Development**: run notebooks in Google Colab or local Jupyter  
+   - **Production**: `panel serve dashboard.py --show` or containerize with Docker  
+   - (Optional) Expose via ngrok or cloud service for remote access  
 
 ---
 
-### Model 2: Demand‑Based Pricing
+## 2. Data Flow
 
-- **Demand function**:  
-Demand = α·(Occupancy/Capacity)
-+ β·QueueLength
-− γ·TrafficLevel
-+ δ·IsSpecialDay
-+ ε·VehicleTypeWeight
 
-markdown
-Copy
-Edit
-- **Pricing**:  
-Price_t = BasePrice × (1 + λ × NormalizedDemand)
+┌──────────────────────────┐
+│  Raw CSV / Stream Input │
+│  (Pathway Reader)       │
+└────────────┬─────────────┘
+             │
+             ▼
+┌──────────────────────────┐
+│  Validation & Parsing    │
+│  (Pathway Schema)        │
+└────────────┬─────────────┘
+             │
+             ▼
+┌──────────────────────────┐
+│  Feature Engineering     │
+│  (pandas & NumPy)        │
+│  • occupancy_rate        │
+│  • traffic_score         │
+│  • queue_length          │
+│  • special_day flag      │
+└────────────┬─────────────┘
+             │
+             ▼
+┌──────────────────────────┐
+│  Pricing Engine          │
+│  • Model 1 (Linear)      │
+│  • Model 2 (Demand‑Based)│
+└────────────┬─────────────┘
+             │
+             ▼
+┌──────────────────────────┐
+│  Dashboard & Visualization│
+│  • Bokeh plots            │
+│  • Panel layout           │
+│  • Interactive controls   │
+└───────────────────────────┘
 
-yaml
-Copy
-Edit
-- **Characteristics**:  
-- Incorporates multiple real‑time factors  
-- Ensures price variations remain bounded and smooth  
+## Workflow
 
-**Notebook**: `model_2_colab.ipynb`  
+The end‑to‑end workflow for the Dynamic Parking Pricing system consists of the following stages:
+
+1. **Data Ingestion**  
+   - **Batch mode**: Read historical/snapshot CSV files with `pw.io.csv.read(..., mode="static")`.  
+   - **Streaming mode** (future extension): Ingest live updates using `mode="streaming"`.  
+   - Schema validation ensures each record contains the required fields and correct types.
+
+2. **Feature Engineering**  
+   - Convert raw timestamps (`LastUpdatedDate` + `LastUpdatedTime`) into a unified `timestamp` column.  
+   - Compute derived features in pandas/NumPy:  
+     - `occupancy_rate = Occupancy / Capacity`  
+     - `traffic_score` (encode “low”/“medium”/“high”)  
+     - `queue_length`, `is_special_day`, and `vehicle_type_weight`  
+
+3. **Pricing Model Execution**  
+   - **Model 1** (Baseline Linear):  
+     ```
+     price[t+1] = price[t] + α × occupancy_rate
+     ```  
+   - **Model 2** (Demand‑Based):  
+     1. Calculate composite demand:  
+        ```
+        D = α·occupancy_rate + β·queue_length – γ·traffic_score + δ·is_special_day + ε·vehicle_type_weight
+        ```  
+     2. Normalize `D` to [0,1] (or [–1,+1]).  
+     3. Compute new price:  
+        ```
+        price = BasePrice × (1 + λ × normalized_D)
+        ```  
+   - Clip prices to predefined bounds (e.g. [0.5×, 2×] BasePrice) for stability.
+
+4. **Simulation Loop**  
+   - Initialize `current_price` = BasePrice.  
+   - For each time step (or batch window):  
+     - Update features on the latest data.  
+     - Recompute price according to the selected model.  
+     - Append to `price_history` for trend analysis.
+
+5. **Visualization & Dashboard**  
+   - Instantiate Bokeh figures: histograms, line charts, bar charts.  
+   - Bind data via `ColumnDataSource`.  
+   - Use Panel to compose layouts (`pn.Row`, `pn.Column`), widgets (sliders, buttons), and data tables.  
+   - In Colab: call `output_notebook()` + `show(fig)` for inline plots.  
+   - In production: launch with `panel serve dashboard.py --show`.
+
+6. **Extension Points**  
+   - **Model 3** (Competitive Pricing): add a spatial layer to compare nearby lot prices and suggest rerouting.  
+   - **Real‑time Streaming**: switch to `mode="streaming"` and hook into a message queue.  
+   - **Persistence**: store historical prices in a database for long‑term analysis and reporting.  
 
 ---
 
-## Usage Instructions
+### Workflow Diagram
 
-### 1. Google Colab
-
-- Open `model_1_colab.ipynb` or `model_2_colab.ipynb` in Colab  
-- Install dependencies in the first cell:  
-```bash
-!pip install panel bokeh pathway pandas numpy
-Run all cells to load data, compute prices, and render plots
-
-2. Local Setup
-Clone the repository:
-
-bash
-Copy
-Edit
-git clone https://github.com/yourusername/parking-dynamic-pricing.git
-cd parking-dynamic-pricing
-Install dependencies:
-
-bash
-Copy
-Edit
-pip install -r requirements.txt
-Launch a Panel server for the notebook:
-
-bash
-Copy
-Edit
-panel serve model_1_colab.ipynb --show
-Project Structure
-bash
-Copy
-Edit
-.
-├── model_1_colab.ipynb      # Baseline linear pricing model
-├── model_2_colab.ipynb      # Demand‑based pricing model
-├── dataset.csv              # Sample or streamed data file
-├── requirements.txt         # Python dependencies
-└── README.md                # Project documentation
-License and Contributors
-License: MIT License
-Authors:
-
-
-
-
-
-
+text
+┌─────────────────┐
+│ Data Ingestion  │<─── CSV or Streaming ───┐
+│  (Pathway)      │                          │
+└───────┬─────────┘                          │
+        │                                    │
+        ▼                                    │
+┌─────────────────┐                          │
+│ Feature         │                          │
+│ Engineering     │                          │
+│ (pandas/NumPy)  │                          │
+└───────┬─────────┘                          │
+        │                                    │
+        ▼                                    │
+┌─────────────────┐      ┌───────────────┐   │
+│ Pricing Model   │◀─────┤ Parameter     │   │
+│ Execution       │      │ Controls      │   │
+│ (Model 1 & 2)   │      └───────────────┘   │
+└───────┬─────────┘                          │
+        │                                    │
+        ▼                                    │
+┌─────────────────┐                          │
+│ Visualization   │                          │
+│ & Dashboard     │──► Colab or Web Server   │
+│ (Bokeh + Panel) │                          │
+└─────────────────┘                          │
+                                             │
+           Extension Points ─────────────────┘
 
 
 
