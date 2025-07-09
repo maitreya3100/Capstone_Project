@@ -103,7 +103,7 @@ This document describes the high‑level architecture of the Dynamic Pricing for
 
 ## 2. Data Flow
 
-
+```text
 ┌──────────────────────────┐
 │  Raw CSV / Stream Input │
 │  (Pathway Reader)       │
@@ -139,7 +139,7 @@ This document describes the high‑level architecture of the Dynamic Pricing for
 │  • Panel layout           │
 │  • Interactive controls   │
 └───────────────────────────┘
-
+```
 ## Workflow
 
 The end‑to‑end workflow for the Dynamic Parking Pricing system consists of the following stages:
