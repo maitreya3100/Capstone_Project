@@ -8,7 +8,7 @@ Static pricing of parking lots can lead to overcrowding or underutilization. Thi
 
 ## Table of Contents
 
-1. [Project Overview]
+1. [Project Overview](#Poject-Overview)
 2. [Tech Stack](#tech-stack)  
 3. [Architecture](#architecture)  
 4. [Model Descriptions](#model-descriptions)  
